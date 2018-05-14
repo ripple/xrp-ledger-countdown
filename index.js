@@ -46,14 +46,34 @@ function getAmendments() {
   })
 }
 
-function reportAmendmentTimes() {
+function getAmendmentMajorities() {
   return getAmendments().then(amendments => {
-    const now = Date.now()
-    if (amendments.Majorities) {
-      for (const majority of amendments.Majorities) {
-        const time = countdown(now, parseRippleTime(majority.Majority.CloseTime + TWO_WEEKS)).toString()
-        messageSlack('Amendment `' + majority.Majority.Amendment + '` will be enabled in *' + time + '* if majority holds')
+    const feature_cpp =
+      'https://raw.githubusercontent.com/ripple/rippled/develop/src/ripple/protocol/impl/Feature.cpp'
+    return request(feature_cpp).then(resp => {
+      let majorities = []
+      if (amendments.Majorities) {
+        for (const majority of amendments.Majorities) {
+          const hash = majority.Majority.Amendment
+          const start = resp.indexOf(hash)
+          majorities.push({
+            hash: hash,
+            closeTime: majority.Majority.CloseTime,
+            name: start == -1 ? undefined : resp.slice(start + 65, resp.indexOf('"', start))
+          })
+        }
       }
+      return majorities
+    })
+  })
+}
+
+function reportAmendmentTimes() {
+  return getAmendmentMajorities().then(amendments => {
+    const now = Date.now()
+    for (const amendment of amendments) {
+      const time = countdown(now, parseRippleTime(amendment.closeTime + TWO_WEEKS)).toString()
+      messageSlack('Amendment `' + (amendment.name ? amendment.name : amendment.hash) + '` will be enabled in *' + time + '* if majority holds')
     }
   })
 }
@@ -80,7 +100,7 @@ const countdownCron = new CronJob({
   cronTime: '00 00 9 * * *',
   onTick: function() {
     reportAmendmentTimes()
-    reportValListExpiration()    
+    reportValListExpiration()
   },
   start: true,
   timeZone: 'America/Los_Angeles'
